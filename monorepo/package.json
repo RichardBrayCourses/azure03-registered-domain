@@ -1,0 +1,19 @@
+{
+  "name": "azure-static-website-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "infra:deploy": "bash scripts/deploy-infra.sh",
+    "infra:what-if": "bash scripts/what-if-infra.sh",
+    "infra:destroy": "bash scripts/destroy-infra.sh",
+    "ui:dev": "pnpm -C apps/ui run dev",
+    "ui:build": "pnpm -C apps/ui run build",
+    "ui:preview": "pnpm -C apps/ui run preview",
+    "ui:upload": "bash scripts/upload-ui.sh",
+    "ui:url": "bash scripts/show-url.sh",
+    "deploy-website": "pnpm run ui:build && pnpm run ui:upload",
+    "deploy-everything": "pnpm run infra:deploy && pnpm run deploy-website && pnpm run ui:url",
+    "type-check": "pnpm -r type-check",
+    "package-cleanup": "pnpm -r package-cleanup && rm -rf node_modules"
+  }
+}

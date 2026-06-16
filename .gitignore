@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# .NET
+bin/
+obj/
+
+# Logs
+*.log
+
+# Local environment files
+.env
+
+# OS files
+.DS_Store
