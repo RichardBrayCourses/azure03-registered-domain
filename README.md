@@ -35,18 +35,18 @@ Cloudflare then forwards the request to the Azure static website endpoint.
 
 ## Deployment Steps
 
-Run commands from the repository root.
+Open a terminal in the **monorep** folder and run commands.
 
 Install dependencies:
 
 ```bash
-pnpm --dir monorepo install
+pnpm install
 ```
 
 Deploy the Azure infrastructure, build the website, upload it, and print the Azure static website endpoint:
 
 ```bash
-pnpm --dir monorepo run deploy-everything
+pnpm run deploy-everything
 ```
 
 The final command prints a URL like this:
@@ -155,7 +155,7 @@ UI_DIST_DIR="${UI_DIST_DIR:-apps/ui/dist}"
 Override values inline when needed:
 
 ```bash
-AZURE_LOCATION=westeurope AZURE_RESOURCE_GROUP=my-static-site-rg pnpm --dir monorepo run deploy-everything
+AZURE_LOCATION=westeurope AZURE_RESOURCE_GROUP=my-static-site-rg pnpm run deploy-everything
 ```
 
 ## Infrastructure
@@ -210,13 +210,13 @@ This maps `www.all-checks-out.com` to the Azure static website endpoint while Cl
 If upload fails because the build output is missing, run:
 
 ```bash
-pnpm --dir monorepo run ui:build
+pnpm run ui:build
 ```
 
 If `ui:url` cannot find a URL, deploy the infrastructure first:
 
 ```bash
-pnpm --dir monorepo run infra:deploy
+pnpm run infra:deploy
 ```
 
 If the registered domain does not load immediately, wait for the Cloudflare DNS change to propagate and then try `https://www.all-checks-out.com` again.
