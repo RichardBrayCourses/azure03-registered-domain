@@ -1,161 +1,49 @@
-# Azure 02 - Deploy A Website To Azure Blob Static Website Hosting
+# Azure 03 - Deploy To A Registered Domain
 
-## Introduction
+## Overview
 
-In this lesson, you build and deploy a real React application to Azure using a small production-style monorepo.
+This lesson deploys the same static website hosting pattern as Azure02, then points a registered domain at the Azure static website endpoint.
 
-The application is an All Checks Out console built with React, TypeScript, Vite, Tailwind CSS, and shadcn-style UI components. It has client-side routing, a role-scoped demo sign-in flow, app navigation, global search, dark-mode persistence, and typed fixture data for authorities, participants, stakeholders, cases, and tasks. That gives us a useful frontend without adding a backend before the course needs one.
+The Azure infrastructure is deliberately small:
 
-The infrastructure is written in Bicep. Bicep creates an Azure Storage account, and the deployment scripts enable Azure Blob static website hosting for the built frontend files. The Vite build output is uploaded into the special `$web` container, and Azure serves the app from the storage account's static website endpoint.
+- one Azure resource group
+- one Azure Storage account
+- Blob static website hosting enabled on that storage account
+- the special `$web` container used by Azure static website hosting
 
-The important lesson is not just "upload some files". The goal is to start shaping a cloud-native project the way we will keep shaping it throughout the Azure course:
+The registered domain is managed in Cloudflare. The only manual DNS change used for this lesson is one proxied `www` CNAME record that points to the Azure static website endpoint.
 
-- application code lives in `apps/ui`
-- infrastructure code lives in `infra`
-- repeatable automation lives in `scripts`
-- root-level package scripts provide the learner-friendly workflow
-- generated assets and deployed resources can be rebuilt from source
-
-This is intentionally a modest deployment. It does not add Azure Front Door, Microsoft Entra External ID, an API, or a database yet. Those belong to later lessons. Here we focus on the first solid milestone: build a modern frontend, provision Azure hosting with infrastructure as code, upload the production bundle, and verify the live site.
-
-## Mermaid Diagram
+## Architecture
 
 ```mermaid
-%%{init: {"themeVariables": {"lineColor": "#2563eb", "edgeLabelBackground": "#eff6ff"}, "themeCSS": ".edgeLabel rect { fill: #eff6ff !important; opacity: 1 !important; } .edgeLabel text, .edgeLabel span { fill: #0f172a !important; color: #0f172a !important; }"}}%%
 flowchart LR
-  learner[Developer terminal]
-  browser[Browser]
+  developer[Developer terminal]
+  build[Local website build output<br/>apps/ui/dist]
+  bicep[Bicep template<br/>monorepo/infra/main.bicep]
+  scripts[Azure CLI scripts<br/>monorepo/scripts]
+  cloudflare[Cloudflare DNS<br/>www CNAME]
 
-  subgraph Monorepo["<b>monorepo</b>"]
-    rootScripts["Root package scripts<br/>install, build, deploy, url, destroy"]
-    ui["apps/ui<br/>React + TypeScript + Vite"]
-    infra["infra/main.bicep<br/>Storage account definition"]
-    scripts["scripts<br/>Azure CLI automation"]
+  subgraph Azure
+    rg[Resource group]
+    storage[Storage account<br/>StorageV2 / Standard_LRS]
+    web[Static website hosting<br/>$web container]
+    endpoint[Azure static website endpoint<br/>*.web.core.windows.net]
   end
 
-  subgraph Build["<b>Local build output</b>"]
-    dist["apps/ui/dist<br/>HTML, CSS, JavaScript assets"]
-  end
+  browser[Browser<br/>www.all-checks-out.com]
 
-  subgraph Azure["<b>Azure</b>"]
-    resourceGroup["Resource group<br/>azure02-static-website-rg"]
-    storage["Storage account<br/>StorageV2"]
-    staticSite["Blob static website<br/>$web container"]
-    endpoint["Static website endpoint<br/>primaryEndpoints.web"]
-  end
-
-  learner --> rootScripts
-  rootScripts --> ui
-  rootScripts --> infra
-  rootScripts --> scripts
-  ui -- vite build --> dist
-  infra -- az deployment group create --> resourceGroup
-  resourceGroup --> storage
-  scripts -- enable static website --> staticSite
-  storage --> staticSite
-  scripts -- upload-batch --> dist
-  dist --> staticSite
-  staticSite --> endpoint
-  browser --> endpoint
-
-  classDef local fill:#f8fafc,stroke:#64748b,color:#0f172a
-  classDef app fill:#ecfeff,stroke:#0891b2,color:#0f172a
-  classDef infraClass fill:#eff6ff,stroke:#2563eb,color:#0f172a
-  classDef azure fill:#f0fdf4,stroke:#16a34a,color:#0f172a
-  classDef output fill:#fff7ed,stroke:#ea580c,color:#0f172a
-
-  class learner,browser,rootScripts,scripts local
-  class ui app
-  class infra infraClass
-  class resourceGroup,storage,staticSite,endpoint azure
-  class dist output
-
-  style Monorepo fill:#f8fafc,stroke:#64748b,color:#0f172a
-  style Build fill:#fff7ed,stroke:#ea580c,color:#0f172a
-  style Azure fill:#f0fdf4,stroke:#16a34a,color:#0f172a
+  developer --> bicep
+  developer --> scripts
+  developer --> build
+  bicep --> rg
+  rg --> storage
+  scripts --> web
+  build --> web
+  storage --> endpoint
+  web --> endpoint
+  cloudflare --> endpoint
+  browser --> cloudflare
 ```
-
-## Release Notes
-
-- **The project now has a clean Azure monorepo.** The `monorepo` folder contains the frontend application, Bicep infrastructure, deployment scripts, workspace configuration, and lockfile needed for this lesson.
-- **The frontend is a Vite React app.** The UI uses React, TypeScript, React Router, Tailwind CSS, lucide icons, and shadcn-style primitives for buttons, inputs, and dropdown menus.
-- **The app includes real client-side behavior.** Students can sign into a scoped demo account, search apps/cases/organizations/tasks, browse case-management and administration screens, submit demo page actions, use breadcrumb navigation, and switch between light and dark themes.
-- **Infrastructure is written in Bicep.** `infra/main.bicep` creates an Azure Storage account using `StorageV2`, `Standard_LRS`, and a deterministic globally valid account name.
-- **Static website hosting is enabled by script.** The deployment script uses Azure CLI to enable static website hosting with `index.html` as both the index document and the not-found document.
-- **Single-page app routing is supported for this lesson.** Because the not-found document is also `index.html`, direct visits to routes such as `/cases` or `/admin/participants` return the React app instead of a storage error page.
-- **The upload script publishes the Vite build.** `scripts/upload-ui.sh` uploads `apps/ui/dist` into the `$web` container with overwrite enabled.
-- **Root scripts hide command complexity.** Students can run `pnpm run deploy-everything` for the full path, or run `infra:deploy`, `ui:build`, `ui:upload`, and `ui:url` one step at a time from the repository root.
-- **The live URL can be printed after deployment.** `pnpm run ui:url` reads the deployed storage account and prints the Azure Blob static website endpoint so it can be opened directly from the terminal.
-- **Configuration is environment-driven.** `scripts/config.sh` provides sensible defaults while still allowing `AZURE_LOCATION`, `AZURE_RESOURCE_GROUP`, `AZURE_DEPLOYMENT_NAME`, `AZURE_APP_NAME`, `AZURE_STORAGE_AUTH_MODE`, and `UI_DIST_DIR` to be overridden.
-- **Teardown is included.** `pnpm run infra:destroy` deletes the resource group so the lesson can be repeated cleanly.
-
-## How To Run
-
-Most commands can be run from the repository root. The root `package.json` delegates to the implementation scripts in `monorepo`.
-
-**Install dependencies**
-
-```bash
-pnpm --dir monorepo install
-```
-
-**Run the app locally**
-
-```bash
-pnpm run ui:dev
-```
-
-Vite starts a local development server. Open the local URL shown in the terminal and confirm that the sign-in flow loads, the role-scoped console routes work, global search returns console results, and the theme button toggles dark mode.
-
-**Run local checks**
-
-```bash
-pnpm run type-check
-pnpm run ui:build
-pnpm run ui:preview
-```
-
-The `type-check` command confirms the TypeScript project is healthy. The `ui:build` command creates the production bundle in `apps/ui/dist`. The `ui:preview` command serves that production bundle locally, which is closer to the way Azure will serve it.
-
-**Deploy infrastructure**
-
-```bash
-pnpm run infra:deploy
-```
-
-This command creates the resource group if needed, deploys the Bicep template, and enables static website hosting on the storage account.
-
-**Deploy the website files**
-
-```bash
-pnpm run deploy-website
-```
-
-This builds the Vite app and uploads the generated files to the static website container.
-
-**Show the live URL**
-
-```bash
-pnpm run ui:url
-```
-
-Open the printed URL in a browser. The site is being served by Azure Blob static website hosting.
-
-**Deploy everything in one command**
-
-```bash
-pnpm run deploy-everything
-```
-
-This is the happy-path command once students understand the individual steps. It deploys infrastructure, builds the app, uploads the files, and prints the live URL.
-
-**Tear down**
-
-```bash
-pnpm run infra:destroy
-```
-
-This deletes the resource group and the resources created for the lesson.
 
 ## Prerequisites
 
@@ -166,108 +54,149 @@ You need:
 - Azure CLI
 - an Azure subscription
 - a signed-in Azure CLI session
+- a registered domain managed in Cloudflare
 
-Check the Azure CLI account:
+Check your Azure CLI account:
 
 ```bash
 az account show --output table
 ```
 
-If you are not signed in:
+Sign in if needed:
 
 ```bash
 az login
 ```
 
-If you have access to multiple subscriptions, select the one you want to use:
+Select a subscription if your account has access to more than one:
 
 ```bash
 az account set --subscription "<subscription-id-or-name>"
 ```
 
-## Monorepo Structure
+## Deploy The Azure Website
 
-```text
-.
-├── package.json
-└── monorepo
-    ├── apps
-    │   └── ui
-    │       ├── src
-    │       ├── index.html
-    │       ├── package.json
-    │       ├── tsconfig.json
-    │       └── vite.config.ts
-    ├── infra
-    │   └── main.bicep
-    ├── scripts
-    │   ├── config.sh
-    │   ├── deploy-infra.sh
-    │   ├── destroy-infra.sh
-    │   ├── show-url.sh
-    │   ├── upload-ui.sh
-    │   └── what-if-infra.sh
-    ├── package.json
-    ├── pnpm-lock.yaml
-    └── pnpm-workspace.yaml
+Run commands from the repository root.
+
+Install dependencies:
+
+```bash
+pnpm --dir monorepo install
 ```
 
-The structure is deliberately small. A single application, a single infrastructure template, and a handful of scripts are enough to teach the first deployment pattern without hiding the important details.
+Preview the infrastructure deployment:
 
-## Frontend App
-
-The frontend lives in `monorepo/apps/ui`.
-
-It uses:
-
-- React for UI components
-- TypeScript for safer application code
-- Vite for local development and production builds
-- React Router for browser routes
-- Tailwind CSS for styling
-- shadcn-style UI primitives for common controls
-- lucide-react for icons
-
-The important files are:
-
-```text
-apps/ui/src/App.tsx
-apps/ui/src/pages/ConsolePages.tsx
-apps/ui/src/pages/SignInPage.tsx
-apps/ui/src/pages/NotFound.tsx
-apps/ui/src/components/ConsoleLayout.tsx
-apps/ui/src/components/Header.tsx
-apps/ui/src/context/AuthContext.tsx
-apps/ui/src/context/ThemeContext.tsx
-apps/ui/src/data/console.ts
+```bash
+pnpm --dir monorepo run infra:what-if
 ```
 
-`App.tsx` sets up the browser router, auth provider, and theme provider. Signed-out users see the demo sign-in page. Signed-in users are routed by role: authority admins land on participants, participants land on cases, and stakeholders land on the stakeholder portal.
+Deploy the Azure infrastructure:
 
-`ConsolePages.tsx` renders the administration, case-management, task-detail, and assurance-portal screens. The pages share layout, tables, metrics, breadcrumbs, tabs, and demo action buttons.
+```bash
+pnpm --dir monorepo run infra:deploy
+```
 
-`ConsoleLayout.tsx` provides the common console shell for page content. Breadcrumb navigation warns about pending demo changes until the user presses the page's affirmative action button, such as `Save case` or `Submit task update`.
+Build and upload the website files:
 
-`Header.tsx` provides the app launcher, global search, current scope, account menu, and theme toggle.
+```bash
+pnpm --dir monorepo run deploy-website
+```
 
-`AuthContext.tsx` is a temporary demo auth layer. It stores the signed-in role and selected scope in `localStorage`. Later lessons can replace this with Microsoft Entra External ID without changing the overall monorepo shape.
+Print the Azure static website endpoint:
 
-`ThemeContext.tsx` stores the light or dark preference in `localStorage`. `App.tsx` applies the `dark` class to the document element so Tailwind can switch the theme variables.
+```bash
+pnpm --dir monorepo run ui:url
+```
 
-`console.ts` contains typed fixture data for the demo. The model separates the main party types and links them by dataless IDs:
+The printed URL is the target for the Cloudflare `www` CNAME record.
 
-- `Authority` has an `id`, `name`, and descriptive metadata.
-- `Participant` has an `id`, `name`, `authorityId`, and `stakeholderId`.
-- `Stakeholder` has an `id` and `name`.
-- `CaseRecord` references a participant by `participantId`.
+## Configure The Registered Domain In Cloudflare
 
-The model intentionally avoids a generic `owner` field because ownership is ambiguous in this domain. Screens resolve IDs to display names through helper functions such as `getAuthority`, `getParticipant`, and `getStakeholder`.
+In Cloudflare DNS, add one CNAME record:
+
+```text
+Type: CNAME
+Name: www
+Target: azure02xxxxxxxxp4ruuk.z33.web.core.windows.net
+Proxy status: Proxied
+```
+
+For this deployment, the DNS record is:
+
+```text
+www.all-checks-out.com.  1  IN  CNAME  azure02xxxxxxxxp4ruuk.z33.web.core.windows.net. ; cf_tags=cf-proxied:true
+```
+
+After Cloudflare has saved the record, visit:
+
+```text
+https://www.all-checks-out.com
+```
+
+## Configuration
+
+The scripts use these defaults from `monorepo/scripts/config.sh`:
+
+```bash
+AZURE_LOCATION="${AZURE_LOCATION:-uksouth}"
+AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-azure02-static-website-rg}"
+AZURE_DEPLOYMENT_NAME="${AZURE_DEPLOYMENT_NAME:-azure02-static-website}"
+AZURE_APP_NAME="${AZURE_APP_NAME:-azure02web}"
+AZURE_STORAGE_AUTH_MODE="${AZURE_STORAGE_AUTH_MODE:-key}"
+UI_DIST_DIR="${UI_DIST_DIR:-apps/ui/dist}"
+```
+
+Override values inline when needed:
+
+```bash
+AZURE_LOCATION=westeurope AZURE_RESOURCE_GROUP=my-static-site-rg pnpm --dir monorepo run deploy-everything
+```
 
 ## Infrastructure
 
-The infrastructure lives in `monorepo/infra/main.bicep`.
+The Bicep file for this lesson is `monorepo/infra/main.bicep`. It creates the Azure Storage account that will host the static website files.
 
-The template creates one storage account:
+The first two lines define the Azure region:
+
+```bicep
+@description('The Azure region where the storage account will be created.')
+param location string = resourceGroup().location
+```
+
+`@description(...)` documents the parameter for anyone reading the template or viewing it through Azure tooling.
+
+`param location string` creates a parameter called `location` with the type `string`.
+
+`= resourceGroup().location` gives the parameter a default value. If the deployment command does not pass a location, Bicep uses the location of the resource group being deployed into.
+
+The next block defines a short application name:
+
+```bicep
+@description('A short lowercase name used to build the storage account name.')
+@minLength(3)
+@maxLength(16)
+param appName string = 'azure02web'
+```
+
+`@description(...)` explains why the parameter exists.
+
+`@minLength(3)` and `@maxLength(16)` validate the value before Azure tries to create anything. This matters because the value is used as part of an Azure Storage account name, and storage account names have strict length rules.
+
+`param appName string = 'azure02web'` creates the `appName` parameter and gives it a default value.
+
+The next line creates the final storage account name:
+
+```bicep
+var storageAccountName = take('${appName}${uniqueString(resourceGroup().id)}', 24)
+```
+
+`var storageAccountName` creates a Bicep variable. Variables are calculated during deployment and are not Azure resources themselves.
+
+`'${appName}${uniqueString(resourceGroup().id)}'` joins the short app name to a deterministic unique suffix based on the resource group id. The suffix helps make the storage account name globally unique while staying repeatable for the same resource group.
+
+`take(..., 24)` limits the generated name to 24 characters, which is the maximum length for an Azure Storage account name.
+
+The resource block creates the Azure Storage account:
 
 ```bicep
 resource websiteStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
@@ -283,17 +212,31 @@ resource websiteStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
 }
 ```
 
-The account name is generated from the `appName` parameter and `uniqueString(resourceGroup().id)`. That matters because Azure Storage account names must be globally unique, lowercase, and no longer than 24 characters.
+`resource websiteStorage` declares an Azure resource in Bicep and gives it the local symbolic name `websiteStorage`. Other parts of the template can refer to this symbolic name.
 
-The template outputs the storage account name:
+`'Microsoft.Storage/storageAccounts@2023-05-01'` tells Bicep the Azure resource type and API version to use.
+
+`name: storageAccountName` sets the real Azure resource name from the variable created earlier.
+
+`location: location` deploys the storage account to the parameter value from the first block.
+
+`sku: { name: 'Standard_LRS' }` chooses the storage account pricing and replication option. `Standard_LRS` means standard performance with locally redundant storage.
+
+`kind: 'StorageV2'` creates a general-purpose v2 storage account, which is the storage account type used for Blob static website hosting.
+
+`properties: { allowBlobPublicAccess: true }` allows blob containers in this account to support public access settings. Static website hosting serves files publicly from the special `$web` container.
+
+The final line outputs the storage account name:
 
 ```bicep
 output storageAccountName string = websiteStorage.name
 ```
 
-The scripts read that output after deployment. That keeps the learner from manually copying storage account names between commands.
+`output` exposes a value after deployment. The deployment scripts read this output so they can enable static website hosting and upload files without asking the learner to copy and paste the generated storage account name.
 
-Static website hosting itself is enabled by Azure CLI in `scripts/deploy-infra.sh`:
+The Bicep file creates the storage account. One extra Azure infrastructure step is done by `monorepo/scripts/deploy-infra.sh` after the Bicep deployment: it enables Blob static website hosting on that storage account.
+
+This is the Azure CLI command that enables static website hosting:
 
 ```bash
 az storage blob service-properties update \
@@ -301,349 +244,64 @@ az storage blob service-properties update \
   --static-website \
   --index-document index.html \
   --404-document index.html \
-  --auth-mode "$AZURE_STORAGE_AUTH_MODE"
+  "${STORAGE_AUTH_ARGS[@]}"
 ```
 
-The key detail is the not-found document. This React app uses browser routing. If a user visits `/cases` or `/admin/participants` directly, Azure Blob static website hosting does not know that route exists as a physical file. Returning `index.html` lets React Router take over in the browser.
+`index.html` is used as the 404 document so browser routes can be handled by the uploaded frontend.
 
-## Deployment Scripts
+The registered-domain infrastructure for this lesson is the Cloudflare DNS record. It is added manually in Cloudflare:
 
-The scripts live in `monorepo/scripts`.
-
-`config.sh` defines shared defaults:
-
-```bash
-AZURE_LOCATION="${AZURE_LOCATION:-uksouth}"
-AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-azure02-static-website-rg}"
-AZURE_DEPLOYMENT_NAME="${AZURE_DEPLOYMENT_NAME:-azure02-static-website}"
-AZURE_APP_NAME="${AZURE_APP_NAME:-azure02web}"
-AZURE_STORAGE_AUTH_MODE="${AZURE_STORAGE_AUTH_MODE:-key}"
-UI_DIST_DIR="${UI_DIST_DIR:-apps/ui/dist}"
+```text
+www.all-checks-out.com.  1  IN  CNAME  azure02xxxxxxxxp4ruuk.z33.web.core.windows.net. ; cf_tags=cf-proxied:true
 ```
 
-You can override these values for a one-off deployment:
+This maps `www.all-checks-out.com` to the Azure static website endpoint while Cloudflare proxies the request.
 
-```bash
-AZURE_LOCATION=westeurope AZURE_RESOURCE_GROUP=my-all-checks-out-rg pnpm run deploy-everything
+## Scripts
+
+- `infra:deploy` creates the resource group, deploys Bicep, reads the storage account name, and enables Blob static website hosting.
+- `infra:what-if` previews the Bicep deployment.
+- `ui:build` builds the website into `apps/ui/dist`.
+- `ui:upload` uploads `apps/ui/dist` into the `$web` container.
+- `ui:url` prints the storage account's `primaryEndpoints.web` URL.
+- `deploy-website` builds and uploads the website.
+- `deploy-everything` deploys infrastructure, builds the website, uploads it, and prints the Azure static website endpoint.
+- `infra:destroy` deletes the resource group.
+
+## Project Structure
+
+```text
+.
+├── README.md
+└── monorepo
+    ├── apps
+    │   └── ui
+    ├── infra
+    │   └── main.bicep
+    ├── scripts
+    │   ├── config.sh
+    │   ├── deploy-infra.sh
+    │   ├── destroy-infra.sh
+    │   ├── show-url.sh
+    │   ├── upload-ui.sh
+    │   └── what-if-infra.sh
+    ├── package.json
+    ├── pnpm-lock.yaml
+    └── pnpm-workspace.yaml
 ```
-
-`deploy-infra.sh` creates the resource group, deploys Bicep, reads the storage account name from the deployment output, and enables static website hosting.
-
-`what-if-infra.sh` runs an Azure deployment preview. This is useful before making infrastructure changes:
-
-```bash
-pnpm run infra:what-if
-```
-
-`upload-ui.sh` reads the storage account name from the deployment output and uploads the built frontend:
-
-```bash
-az storage blob upload-batch \
-  --account-name "$STORAGE_ACCOUNT_NAME" \
-  --destination '$web' \
-  --source "$UI_DIST_DIR" \
-  --overwrite true \
-  --auth-mode "$AZURE_STORAGE_AUTH_MODE"
-```
-
-The `$web` container is created by Azure when static website hosting is enabled. Files in this container are served by the static website endpoint.
-
-`show-url.sh` reads the storage account name from the deployment output, then asks Azure for the storage account's `primaryEndpoints.web` value. This avoids making the learner hunt through the Azure portal after deployment.
-
-`destroy-infra.sh` deletes the whole resource group. That is simple and appropriate for this lesson because the resource group is dedicated to this deployment.
-
-## Package Scripts
-
-The repository-root `package.json` is the learner-facing command surface. It delegates into the monorepo so students can run commands from the top of the repo:
-
-```json
-{
-  "scripts": {
-    "ui:url": "pnpm --dir monorepo run ui:url",
-    "deploy-everything": "pnpm --dir monorepo run deploy-everything"
-  }
-}
-```
-
-Inside `monorepo`, `package.json` owns the actual UI, infrastructure, deployment, and cleanup commands:
-
-```json
-{
-  "scripts": {
-    "infra:deploy": "bash scripts/deploy-infra.sh",
-    "infra:what-if": "bash scripts/what-if-infra.sh",
-    "infra:destroy": "bash scripts/destroy-infra.sh",
-    "ui:dev": "pnpm -C apps/ui run dev",
-    "ui:build": "pnpm -C apps/ui run build",
-    "ui:preview": "pnpm -C apps/ui run preview",
-    "ui:upload": "bash scripts/upload-ui.sh",
-    "ui:url": "bash scripts/show-url.sh",
-    "deploy-website": "pnpm run ui:build && pnpm run ui:upload",
-    "deploy-everything": "pnpm run infra:deploy && pnpm run deploy-website && pnpm run ui:url",
-    "type-check": "pnpm -r type-check",
-    "package-cleanup": "pnpm -r package-cleanup && rm -rf node_modules"
-  }
-}
-```
-
-This gives students two modes of working.
-
-For learning, they can run one command at a time and see exactly what each step does.
-
-For daily work, they can use the composed commands:
-
-```bash
-pnpm run deploy-website
-pnpm run deploy-everything
-```
-
-## Build The Monorepo From Scratch
-
-This section explains how to recreate the monorepo yourself.
-
-### 1. Create The Folder
-
-```bash
-mkdir monorepo
-cd monorepo
-```
-
-### 2. Create The Workspace
-
-Create `package.json` at the monorepo root with scripts for the UI, infrastructure, deployment, URL lookup, and cleanup.
-
-Create `pnpm-workspace.yaml`:
-
-```yaml
-packages:
-  - "apps/ui"
-allowBuilds:
-  esbuild: true
-  msw: true
-```
-
-The workspace only includes `apps/ui` for now. Infrastructure is handled through Azure CLI and Bicep, so it does not need a Node package.
-
-### 3. Create The Vite App
-
-Create the app folder:
-
-```bash
-mkdir -p apps/ui
-```
-
-The UI package needs React, React Router, Tailwind CSS, and the small component dependencies used by the app.
-
-The app entry point is `apps/ui/src/main.tsx`. It finds the root DOM element, creates the React root, and renders `<App />`.
-
-`apps/ui/src/App.tsx` wraps the app in providers and defines the routes:
-
-```tsx
-<Routes>
-  <Route path="/" element={<Navigate to={getDefaultConsolePath(user.role)} replace />} />
-  <Route path="/admin/participants" element={<ParticipantsPage />} />
-  <Route path="/cases" element={<CaseManagementHome />} />
-  <Route path="/cases/:caseId" element={<CaseDetailPage />} />
-  <Route path="/stakeholder" element={<StakeholderPortalPage />} />
-  <Route path="*" element={<NotFound />} />
-</Routes>
-```
-
-This is enough to prove that static hosting can serve a modern client-side app with nested business routes, not just a single flat HTML page.
-
-### 4. Add App State
-
-Add two browser-backed contexts:
-
-- `AuthContext` for demo login/logout state
-- `ThemeContext` for light/dark mode
-
-Both contexts use `localStorage`, which means students can refresh the deployed app and see that the browser remembers their choice.
-
-### 5. Add Console Data
-
-Create `apps/ui/src/data/console.ts` with small typed arrays for the console demo. The important entity types are:
-
-```ts
-Authority
-Participant
-Stakeholder
-CaseRecord
-Task
-```
-
-Use dataless relationship keys between entities. For example, `Participant` should store `authorityId` and `stakeholderId`, and `CaseRecord` should store `participantId`. Avoid a generic `owner` field; it is too ambiguous for this domain.
-
-The console pages import this data, scope it to the signed-in demo user, and render role-appropriate administration, case-management, and stakeholder views.
-
-### 6. Add Bicep
-
-Create `infra/main.bicep`.
-
-Define parameters for the deployment region and app name. Then create a storage account with a generated account name. Output the account name and the static website endpoint so scripts can read them later.
-
-This keeps the infrastructure declarative. The account can be recreated in a new resource group without changing hard-coded names in the scripts.
-
-### 7. Add Azure CLI Scripts
-
-Create a shared `scripts/config.sh` first so every script uses the same resource group, deployment name, region, app name, and UI build folder.
-
-Then add:
-
-- `deploy-infra.sh`
-- `what-if-infra.sh`
-- `upload-ui.sh`
-- `show-url.sh`
-- `destroy-infra.sh`
-
-Make the scripts executable:
-
-```bash
-chmod +x scripts/*.sh
-```
-
-The scripts should always read Azure state instead of asking the learner to paste values. For example, `show-url.sh` reads the storage account name from the deployment output, then prints the storage account's current static website endpoint.
-
-Add a repository-root `package.json` as a convenience wrapper so learners can run the same commands from the top of the repo:
-
-```json
-{
-  "scripts": {
-    "ui:url": "pnpm --dir monorepo run ui:url",
-    "deploy-everything": "pnpm --dir monorepo run deploy-everything"
-  }
-}
-```
-
-### 8. Install, Build, And Verify
-
-Install dependencies:
-
-```bash
-pnpm install
-```
-
-Run the checks:
-
-```bash
-pnpm run type-check
-pnpm run ui:build
-```
-
-Preview the built app:
-
-```bash
-pnpm run ui:preview
-```
-
-### 9. Deploy To Azure
-
-Deploy everything:
-
-```bash
-pnpm run deploy-everything
-```
-
-Open the printed URL. Test:
-
-- the sign-in page loads
-- selecting an authority and role signs into the console
-- `/cases` shows the case list for a case-management user
-- `/admin/participants` shows the participant list for an authority admin
-- `/stakeholder` shows the stakeholder portal for a stakeholder
-- global search finds apps, cases, organizations, and tasks
-- page action buttons clear the breadcrumb warning for demo navigation
-- the theme toggle works
-- refreshing `/cases` still returns the React app
 
 ## Troubleshooting
 
-### Azure CLI Is Not Signed In
-
-Symptom:
-
-```text
-Please run 'az login' to setup account.
-```
-
-Fix:
+If upload fails because the build output is missing, run:
 
 ```bash
-az login
+pnpm --dir monorepo run ui:build
 ```
 
-### Wrong Subscription
-
-Symptom: resources deploy to the wrong account, or deployment fails because the expected subscription is not active.
-
-Check:
+If `ui:url` cannot find a URL, deploy the infrastructure first:
 
 ```bash
-az account show --output table
+pnpm --dir monorepo run infra:deploy
 ```
 
-Fix:
-
-```bash
-az account set --subscription "<subscription-id-or-name>"
-```
-
-### Upload Fails Because The App Has Not Been Built
-
-Symptom:
-
-```text
-Build output not found at apps/ui/dist
-```
-
-Fix:
-
-```bash
-pnpm run ui:build
-pnpm run ui:upload
-```
-
-### Direct Route Refresh Does Not Work
-
-For this lesson, the deploy script sets both the index document and not-found document to `index.html`. If direct refreshes fail, rerun:
-
-```bash
-pnpm run infra:deploy
-pnpm run deploy-website
-```
-
-Then test the route again.
-
-### Permission Errors During Upload
-
-The scripts default to Azure CLI account-key mode for storage operations:
-
-```bash
-AZURE_STORAGE_AUTH_MODE="${AZURE_STORAGE_AUTH_MODE:-key}"
-```
-
-In this mode the scripts read the storage account key and pass it explicitly to the Azure CLI storage commands. That avoids requiring a separate Storage Blob Data role for the tutorial upload and keeps the CLI output focused on the deployment. Your signed-in Azure identity still needs permission to read the storage account keys, which Owner and Contributor normally include.
-
-If your organization disables shared key access, use Azure RBAC instead:
-
-```bash
-AZURE_STORAGE_AUTH_MODE=login pnpm run deploy-everything
-```
-
-In that mode, your signed-in Azure identity needs a blob data-plane role such as `Storage Blob Data Contributor` on the storage account or resource group.
-
-## What You Have Learned
-
-By the end of this lesson, you have:
-
-- created a small Azure-focused monorepo
-- built a React and TypeScript frontend with Vite
-- organized application, infrastructure, and deployment automation separately
-- written Bicep for an Azure Storage account
-- enabled Azure Blob static website hosting
-- uploaded a production frontend bundle to the `$web` container
-- supported React Router refreshes with the static website not-found document
-- used Azure CLI deployment outputs to avoid manual copy-and-paste steps
-- deployed, verified, and destroyed the lesson environment
-
-That is a strong first Azure deployment. The project is small enough to understand completely, but it already has the shape we can extend in later lessons with authentication, APIs, databases, observability, messaging, and more production-grade hosting.
+If the registered domain does not load immediately, wait for the Cloudflare DNS change to propagate and then try `https://www.all-checks-out.com` again.
